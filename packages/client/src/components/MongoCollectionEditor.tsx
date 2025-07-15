@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Paper, Typography, Alert, Snackbar, Chip } from '@mui/material';
-import { ConnectionConfig } from './ConnectionConfig';
-import { CollectionSelector } from './CollectionSelector';
+import { DatabaseCollectionSelector } from './DatabaseCollectionSelector';
 import { CollectionDataGrid } from './CollectionDataGrid';
 import { MongoDocument, ApiResponse } from '@mongo-editor/shared';
 import { EditorWebSocketService } from '../services/websocketService';
@@ -170,7 +169,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
           MongoDB Collection Editor
         </Typography>
         
-        <Box display="flex" gap={1}>
+        {/* <Box display="flex" gap={1}>
           <Chip
             label={wsConnected ? '🟢 Live' : '🔴 Offline'}
             color={wsConnected ? 'success' : 'default'}
@@ -183,7 +182,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
               size="small"
             />
           )}
-        </Box>
+        </Box> */}
       </Box>
       
       {error && (
@@ -193,23 +192,16 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
       )}
 
       <Paper sx={{ p: 2, mb: 2 }}>
-        <ConnectionConfig
+        <DatabaseCollectionSelector
           databaseName={databaseName}
+          collectionName={collectionName}
           onDatabaseNameChange={setDatabaseName}
+          onCollectionChange={handleCollectionChange}
           onConnectionSuccess={handleConnectionSuccess}
           onConnectionError={handleConnectionError}
+          isConnected={isConnected}
         />
       </Paper>
-
-      {isConnected && databaseName && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <CollectionSelector
-            databaseName={databaseName}
-            selectedCollection={collectionName}
-            onCollectionChange={handleCollectionChange}
-          />
-        </Paper>
-      )}
 
       {isConnected && databaseName && collectionName && (
         <Paper sx={{ 
@@ -226,6 +218,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
             collectionName={collectionName}
             readonly={readonly}
             editorId={wsService.current?.getEditorId()}
+            connectedEditors={connectedEditors}
             onDocumentChange={onDocumentChange}
             onEditSuccess={(message) => showToast(message, 'success')}
             onEditError={(message) => showToast(message, 'error')}

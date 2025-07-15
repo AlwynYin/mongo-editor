@@ -25,8 +25,12 @@ export class EditorWebSocketService {
   }
 
   private generateEditorId(): string {
-    // Generate a unique editor ID
-    return `editor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate a unique editor ID using crypto.randomUUID if available, else fallback to random string
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `editor_${crypto.randomUUID()}`;
+    }
+    // Fallback for environments without crypto.randomUUID
+    return `editor_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`;
   }
 
   async connect(): Promise<void> {

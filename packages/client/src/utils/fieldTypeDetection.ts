@@ -158,3 +158,33 @@ export function isFieldEditable(fieldName: string, type: FieldType): boolean {
   
   return true;
 }
+
+/**
+ * Get field type from schema, fallback to first non-null value
+ */
+export function getFieldTypeFromSchema(
+  fieldName: string,
+  documents: any[],
+  schema?: Record<string, string>
+): FieldType {
+  // First try to get type from schema
+  if (schema && schema[fieldName]) {
+    const schemaType = schema[fieldName];
+    // Convert schema type to our FieldType
+    switch (schemaType) {
+      case 'string': return 'string';
+      case 'number': return 'number';
+      case 'boolean': return 'boolean';
+      case 'date': return 'date';
+      case 'objectId': return 'objectId';
+      default: return 'string'; // Default to string for unknown schema types
+    }
+  }
+  
+  // Fallback to detecting from first non-null value
+  const sampleValue = documents.find(doc => doc[fieldName] != null)?.[fieldName];
+  const detectedType = detectFieldType(sampleValue);
+  
+  // If still unknown (all values are null), default to string
+  return detectedType === 'unknown' ? 'string' : detectedType;
+}

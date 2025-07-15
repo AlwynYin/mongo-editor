@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DataGrid, GridColDef, GridRowsProp, GridRowModel, GridRowModes, GridRowModesModel, GridEventListener, GridRowEditStopReasons } from '@mui/x-data-grid';
 import { Box, Typography, CircularProgress, Alert } from '@mui/material';
 import { ApiResponse, PaginatedResult, MongoDocument } from '@mongo-editor/shared';
-import { detectFieldType, isFieldEditable, convertFieldValue } from '../utils/fieldTypeDetection';
+import { detectFieldType, isFieldEditable, convertFieldValue, getFieldTypeFromSchema } from '../utils/fieldTypeDetection';
 
 interface CollectionDataGridProps {
   databaseName: string;
   collectionName: string;
   readonly?: boolean;
   editorId?: string;
+  connectedEditors?: string[];
   onDocumentChange?: (document: MongoDocument) => void;
   onEditSuccess?: (message: string) => void;
   onEditError?: (message: string) => void;
@@ -19,6 +20,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   collectionName,
   readonly = false,
   editorId,
+  connectedEditors = [],
   onDocumentChange,
   onEditSuccess,
   onEditError
@@ -30,6 +32,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [rowModesModel, setRowModesModel] = useState<GridRowModesModel>({});
+  const [schema, setSchema] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
     if (databaseName && collectionName) {
@@ -37,6 +40,13 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
       loadDocuments();
     }
   }, [databaseName, collectionName, page, pageSize]);
+
+  // Load schema when collection changes
+  useEffect(() => {
+    if (databaseName && collectionName) {
+      loadSchema();
+    }
+  }, [databaseName, collectionName]);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -64,6 +74,21 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
     }
   };
 
+  const loadSchema = async () => {
+    try {
+      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/schema`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // Use inferredSchema as our schema source
+        setSchema(result.data.inferredSchema || null);
+      }
+    } catch (error) {
+      console.warn('Failed to load schema:', error);
+      // Don't set error state, just continue without schema
+    }
+  };
+
   const columns: GridColDef[] = useMemo(() => {
     if (documents.length === 0) return [];
 
@@ -78,9 +103,8 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
     });
 
     return Array.from(allKeys).map(key => {
-      // Detect field type from first non-null value
-      const sampleValue = documents.find(doc => doc[key] != null)?.[key];
-      const fieldType = detectFieldType(sampleValue);
+      // Use schema-based type detection with fallback to sample value
+      const fieldType = getFieldTypeFromSchema(key, documents, schema || undefined);
       const editable = !readonly && isFieldEditable(key, fieldType);
       
       return {
@@ -137,7 +161,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
         }
       } as GridColDef;
     });
-  }, [documents]);
+  }, [documents, schema, readonly]);
 
   const rows: GridRowsProp = useMemo(() => {
     return documents.map((doc, index) => ({
@@ -212,9 +236,16 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
         <Typography variant="h6">
           Collection: {collectionName}
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {totalCount.toLocaleString()} total documents
-        </Typography>
+        <Box display="flex" alignItems="center" gap={2}>
+          <Typography variant="body2" color="text.secondary">
+            {totalCount.toLocaleString()} total documents
+          </Typography>
+          {connectedEditors.length > 0 && (
+            <Typography variant="body2" color="primary">
+              {connectedEditors.length + 1} active editors
+            </Typography>
+          )}
+        </Box>
       </Box>
       
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>

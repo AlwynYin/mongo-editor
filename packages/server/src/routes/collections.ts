@@ -40,8 +40,8 @@ collectionsRouter.post('/test-connection', async (req, res) => {
       });
     }
 
-    const service = new MongoEditorService(databaseName);
-    const result = await service.testConnection();
+    const service = MongoEditorService.getInstance();
+    const result = await service.testConnection(databaseName);
     
     if (result.success) {
       res.json(result);
@@ -60,8 +60,8 @@ collectionsRouter.post('/test-connection', async (req, res) => {
 collectionsRouter.get('/:database', async (req, res) => {
   try {
     const { database } = req.params;
-    const service = new MongoEditorService(database);
-    const result = await service.listCollections();
+    const service = MongoEditorService.getInstance();
+    const result = await service.listCollections(database);
     
     if (result.success) {
       res.json(result);
@@ -81,8 +81,8 @@ collectionsRouter.get('/:database/:collection/stats', async (req, res) => {
   try {
     const { database, collection } = req.params;
     
-    const service = new MongoEditorService(database);
-    const result = await service.getCollectionStats(collection);
+    const service = MongoEditorService.getInstance();
+    const result = await service.getCollectionStats(database, collection);
     
     if (result.success) {
       res.json(result);
@@ -97,14 +97,36 @@ collectionsRouter.get('/:database/:collection/stats', async (req, res) => {
   }
 });
 
+// Get collection schema
+collectionsRouter.get('/:database/:collection/schema', async (req, res) => {
+  try {
+    const { database, collection } = req.params;
+    
+    const service = MongoEditorService.getInstance();
+    const result = await service.getCollectionSchema(database, collection);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to get collection schema' 
+    });
+  }
+});
+
 // Get documents from a collection
 collectionsRouter.get('/:database/:collection', async (req, res) => {
   try {
     const { database, collection } = req.params;
     const { page = '1', limit = '25' } = req.query;
     
-    const service = new MongoEditorService(database);
+    const service = MongoEditorService.getInstance();
     const result = await service.getDocuments(
+      database,
       collection, 
       parseInt(page as string), 
       parseInt(limit as string)
@@ -130,8 +152,8 @@ collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
     const { editorId } = req.query;
     const updateData = req.body;
     
-    const service = new MongoEditorService(database);
-    const result = await service.updateDocument(collection, id, updateData);
+    const service = MongoEditorService.getInstance();
+    const result = await service.updateDocument(database, collection, id, updateData);
     
     if (result.success) {
       // Broadcast update via WebSocket
@@ -164,8 +186,8 @@ collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
     const { database, collection, id } = req.params;
     const { editorId } = req.query;
     
-    const service = new MongoEditorService(database);
-    const result = await service.deleteDocument(collection, id);
+    const service = MongoEditorService.getInstance();
+    const result = await service.deleteDocument(database, collection, id);
     
     if (result.success) {
       // Broadcast delete via WebSocket
