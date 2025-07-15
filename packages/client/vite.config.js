@@ -18,18 +18,11 @@ export default defineConfig({
     }
   },
   build: {
-    lib: {
-      entry: 'src/index.ts',
-      name: 'MongoEditor',
-      fileName: (format) => `mongo-editor.${format}.js`
-    },
+    outDir: 'dist',
+    assetsDir: 'assets',
     rollupOptions: {
-      external: ['react', 'react-dom'],
-      output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM'
-        }
+      input: {
+        main: path.resolve(__dirname, 'index.html')
       }
     }
   }
