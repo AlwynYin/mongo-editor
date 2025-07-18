@@ -8,8 +8,6 @@ interface CollectionDataGridProps {
   databaseName: string;
   collectionName: string;
   readonly?: boolean;
-  editorId?: string;
-  connectedEditors?: string[];
   onDocumentChange?: (document: MongoDocument) => void;
   onEditSuccess?: (message: string) => void;
   onEditError?: (message: string) => void;
@@ -19,8 +17,6 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   databaseName,
   collectionName,
   readonly = false,
-  editorId,
-  connectedEditors = [],
   onDocumentChange,
   onEditSuccess,
   onEditError
@@ -183,9 +179,6 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
       const { id, ...mongoDocument } = newRow;
 
       const params = new URLSearchParams();
-      if (editorId) {
-        params.set('editorId', editorId);
-      }
 
       const response = await fetch(`/api/collections/${databaseName}/${collectionName}/${newRow._id}?${params}`, {
         method: 'PUT',
@@ -240,11 +233,6 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
           <Typography variant="body2" color="text.secondary">
             {totalCount.toLocaleString()} total documents
           </Typography>
-          {connectedEditors.length > 0 && (
-            <Typography variant="body2" color="primary">
-              {connectedEditors.length + 1} active editors
-            </Typography>
-          )}
         </Box>
       </Box>
       

@@ -149,25 +149,12 @@ collectionsRouter.get('/:database/:collection', async (req, res) => {
 collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
   try {
     const { database, collection, id } = req.params;
-    const { editorId } = req.query;
     const updateData = req.body;
     
     const service = MongoEditorService.getInstance();
     const result = await service.updateDocument(database, collection, id, updateData);
     
     if (result.success) {
-      // Broadcast update via WebSocket
-      const wsServer = req.app.locals.wsServer;
-      if (wsServer && editorId) {
-        wsServer.broadcastDocumentUpdate(
-          database,
-          collection,
-          id,
-          result.data,
-          editorId as string
-        );
-      }
-      
       res.json(result);
     } else {
       res.status(500).json(result);
@@ -184,23 +171,11 @@ collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
 collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
   try {
     const { database, collection, id } = req.params;
-    const { editorId } = req.query;
     
     const service = MongoEditorService.getInstance();
     const result = await service.deleteDocument(database, collection, id);
     
     if (result.success) {
-      // Broadcast delete via WebSocket
-      const wsServer = req.app.locals.wsServer;
-      if (wsServer && editorId) {
-        wsServer.broadcastDocumentDelete(
-          database,
-          collection,
-          id,
-          editorId as string
-        );
-      }
-      
       res.json(result);
     } else {
       res.status(500).json(result);
