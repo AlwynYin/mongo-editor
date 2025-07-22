@@ -40,6 +40,9 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   const [editingColumnField, setEditingColumnField] = useState<string | null>(null);
   const [removeColumnField, setRemoveColumnField] = useState<string | null>(null);
   const [removingColumn, setRemovingColumn] = useState(false);
+  const [rowSelectionModel, setRowSelectionModel] = useState<string[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingRows, setDeletingRows] = useState(false);
   
   const apiRef = useGridApiRef();
 
@@ -438,6 +441,56 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
     setRemoveColumnField(null);
   };
 
+  const handleDeleteRows = () => {
+    if (rowSelectionModel.length > 0) {
+      setDeleteConfirmOpen(true);
+    }
+  };
+
+  const handleCancelDeleteRows = () => {
+    setDeleteConfirmOpen(false);
+  };
+
+  const confirmDeleteRows = async () => {
+    if (rowSelectionModel.length === 0) return;
+
+    setDeletingRows(true);
+    setDeleteConfirmOpen(false);
+
+    try {
+      const deletePromises = rowSelectionModel.map(async (rowId) => {
+        const response = await fetch(`/api/collections/${databaseName}/${collectionName}/${rowId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          const result = await response.json();
+          throw new Error(result.error || 'Failed to delete document');
+        }
+
+        return response.json();
+      });
+
+      await Promise.all(deletePromises);
+
+      // Reload documents to ensure consistency
+      await loadDocuments();
+      
+      // Clear selection
+      setRowSelectionModel([]);
+      
+      const deletedCount = rowSelectionModel.length;
+      onEditSuccess?.(`Successfully deleted ${deletedCount} row${deletedCount > 1 ? 's' : ''}!`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete rows';
+      onEditError?.(errorMessage);
+      // Reload documents in case some deletions succeeded
+      await loadDocuments();
+    } finally {
+      setDeletingRows(false);
+    }
+  };
+
   // Get all existing field names for validation
   const existingFields = useMemo(() => {
     const fieldSet = new Set<string>();
@@ -494,6 +547,9 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
             setPageSize(model.pageSize);
           }}
           pageSizeOptions={[10, 25, 50, 100]}
+          checkboxSelection={!readonly}
+          rowSelectionModel={rowSelectionModel}
+          onRowSelectionModelChange={setRowSelectionModel}
           slots={{
             toolbar: CustomGridToolbar,
             columnMenu: (props) => (
@@ -509,6 +565,9 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
             toolbar: {
               onAddRow: () => setAddRowModalOpen(true),
               onAddColumn: () => setAddColumnModalOpen(true),
+              onDeleteRows: handleDeleteRows,
+              selectedRowCount: rowSelectionModel.length,
+              deletingRows: deletingRows,
               readonly: readonly
             } as any
           }}
@@ -571,6 +630,21 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
           <Button onClick={cancelRemoveColumn} disabled={removingColumn}>Cancel</Button>
           <Button onClick={confirmRemoveColumn} color="error" disabled={removingColumn} autoFocus>
             Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onClose={handleCancelDeleteRows}>
+        <DialogTitle>Delete Rows</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete {rowSelectionModel.length} row{rowSelectionModel.length > 1 ? 's' : ''}? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelDeleteRows} disabled={deletingRows}>Cancel</Button>
+          <Button onClick={confirmDeleteRows} color="error" disabled={deletingRows} autoFocus>
+            Delete
           </Button>
         </DialogActions>
       </Dialog>

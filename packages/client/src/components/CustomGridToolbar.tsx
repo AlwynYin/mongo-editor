@@ -8,17 +8,23 @@ import {
   GridToolbarProps,
 } from '@mui/x-data-grid';
 import { Button, Box } from '@mui/material';
-import { Add as AddIcon, ViewColumn as ViewColumnIcon } from '@mui/icons-material';
+import { Add as AddIcon, ViewColumn as ViewColumnIcon, Delete as DeleteIcon } from '@mui/icons-material';
 
 interface CustomGridToolbarProps extends GridToolbarProps {
   onAddRow?: () => void;
   onAddColumn?: () => void;
+  onDeleteRows?: () => void;
+  selectedRowCount?: number;
+  deletingRows?: boolean;
   readonly?: boolean;
 }
 
 export const CustomGridToolbar: React.FC<CustomGridToolbarProps> = ({
   onAddRow,
   onAddColumn,
+  onDeleteRows,
+  selectedRowCount = 0,
+  deletingRows = false,
   readonly = false
 }) => {
   return (
@@ -44,10 +50,22 @@ export const CustomGridToolbar: React.FC<CustomGridToolbarProps> = ({
             Add Column
           </Button>
         )}
+        {!readonly && onDeleteRows && selectedRowCount > 0 && (
+          <Button
+            size="small"
+            startIcon={<DeleteIcon />}
+            onClick={onDeleteRows}
+            variant="outlined"
+            color="error"
+            disabled={deletingRows}
+          >
+            Delete {selectedRowCount} Row{selectedRowCount > 1 ? 's' : ''}
+          </Button>
+        )}
         <GridToolbarColumnsButton />
         <GridToolbarFilterButton />
         <GridToolbarDensitySelector />
-        <GridToolbarExport />
+        {/* <GridToolbarExport />  TODO */}
       </Box>
     </GridToolbarContainer>
   );
