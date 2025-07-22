@@ -167,6 +167,28 @@ collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
   }
 });
 
+// Create a new document
+collectionsRouter.post('/:database/:collection', async (req, res) => {
+  try {
+    const { database, collection } = req.params;
+    const documentData = req.body;
+    
+    const service = MongoEditorService.getInstance();
+    const result = await service.createDocument(database, collection, documentData);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to create document' 
+    });
+  }
+});
+
 // Delete a document
 collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
   try {
@@ -184,6 +206,83 @@ collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error instanceof Error ? error.message : 'Failed to delete document' 
+    });
+  }
+});
+
+// Add field to all documents in collection
+collectionsRouter.post('/:database/:collection/fields', async (req, res) => {
+  try {
+    const { database, collection } = req.params;
+    const { fieldName, fieldType, defaultValue } = req.body;
+    
+    if (!fieldName || !fieldType) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Field name and type are required' 
+      });
+    }
+    
+    const service = MongoEditorService.getInstance();
+    const result = await service.addFieldToCollection(database, collection, fieldName, fieldType, defaultValue);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to add field to collection' 
+    });
+  }
+});
+
+// Rename field in all documents in collection
+collectionsRouter.put('/:database/:collection/fields/:fieldName', async (req, res) => {
+  try {
+    const { database, collection, fieldName } = req.params;
+    const { newFieldName } = req.body;
+    
+    if (!newFieldName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'New field name is required' 
+      });
+    }
+    
+    const service = MongoEditorService.getInstance();
+    const result = await service.renameField(database, collection, fieldName, newFieldName);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Failed to rename field' 
+    });
+  }
+});
+
+// Remove field from all documents in collection
+collectionsRouter.delete('/:database/:collection/fields/:fieldName', async (req, res) => {
+  try {
+    const { database, collection, fieldName } = req.params;
+    const service = MongoEditorService.getInstance();
+    const result = await service.removeFieldFromCollection(database, collection, fieldName);
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to remove field from collection'
     });
   }
 });

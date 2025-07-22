@@ -2,7 +2,7 @@
   "name": "mongo-editor",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"pnpm --filter @mongo-editor/server dev\" \"pnpm --filter @mongo-editor/client dev\"",
+    "dev": "concurrently \"pnpm --filter @mongo-editor/shared dev\" \"pnpm --filter @mongo-editor/server dev\" \"pnpm --filter @mongo-editor/client dev\"",
     "build": "pnpm --filter @mongo-editor/shared build && pnpm --filter @mongo-editor/server build && pnpm --filter @mongo-editor/client build",
     "clean": "pnpm -r clean"
   },

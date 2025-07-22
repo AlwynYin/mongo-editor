@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { DataGrid, GridColDef, GridRowsProp, GridRowModel, GridRowModes, GridRowModesModel, GridEventListener, GridRowEditStopReasons } from '@mui/x-data-grid';
-import { Box, Typography, CircularProgress, Alert } from '@mui/material';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { DataGrid, GridColDef, GridRowsProp, GridRowModel, GridRowModesModel, GridEventListener, GridRowEditStopReasons, useGridApiRef } from '@mui/x-data-grid';
+import { Box, Typography, Alert } from '@mui/material';
 import { ApiResponse, PaginatedResult, MongoDocument } from '@mongo-editor/shared';
-import { detectFieldType, isFieldEditable, convertFieldValue, getFieldTypeFromSchema } from '../utils/fieldTypeDetection';
+import { isFieldEditable, convertFieldValue, getFieldTypeFromSchema, FieldType } from '../utils/fieldTypeDetection';
+import { CustomGridToolbar } from './CustomGridToolbar';
+import { AddRowModal } from './AddRowModal';
+import { AddColumnModal } from './AddColumnModal';
+import { EditableColumnHeader } from './EditableColumnHeader';
+import { CustomColumnMenu } from './CustomColumnMenu';
+import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from '@mui/material';
 
 interface CollectionDataGridProps {
   databaseName: string;
@@ -29,6 +35,13 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   const [pageSize, setPageSize] = useState(25);
   const [rowModesModel, setRowModesModel] = useState<GridRowModesModel>({});
   const [schema, setSchema] = useState<Record<string, string> | null>(null);
+  const [addRowModalOpen, setAddRowModalOpen] = useState(false);
+  const [addColumnModalOpen, setAddColumnModalOpen] = useState(false);
+  const [editingColumnField, setEditingColumnField] = useState<string | null>(null);
+  const [removeColumnField, setRemoveColumnField] = useState<string | null>(null);
+  const [removingColumn, setRemovingColumn] = useState(false);
+  
+  const apiRef = useGridApiRef();
 
   useEffect(() => {
     if (databaseName && collectionName) {
@@ -76,8 +89,22 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
       const result = await response.json();
       
       if (result.success && result.data) {
-        // Use inferredSchema as our schema source
-        setSchema(result.data.inferredSchema || null);
+        // console.log('Schema API response:', result.data);
+        let schemaToUse: Record<string, string> | null = null;
+        
+        // Prefer JSON Schema if it exists, fallback to inferred schema
+        if (result.data.jsonSchema) {
+          // console.log('Using JSON Schema:', result.data.jsonSchema);
+          // Extract fields from JSON Schema
+          schemaToUse = extractFieldsFromJsonSchema(result.data.jsonSchema);
+        } else if (result.data.inferredSchema) {
+          // console.log('Using inferred schema:', result.data.inferredSchema);
+          // Use inferred schema as fallback
+          schemaToUse = result.data.inferredSchema;
+        }
+        
+        setSchema(schemaToUse);
+        // console.log('CollectionDataGrid loaded schema:', schemaToUse);
       }
     } catch (error) {
       console.warn('Failed to load schema:', error);
@@ -106,13 +133,21 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
       return {
         field: key,
         headerName: key,
-        width: key === '_id' ? 200 : 150,
-        flex: key === '_id' ? 0 : 1,
         sortable: false,
         editable,
         type: fieldType === 'number' ? 'number' : 
               fieldType === 'boolean' ? 'boolean' : 'string',
-        valueGetter: (value, row) => {
+        renderHeader: () => (
+          <EditableColumnHeader
+            field={key}
+            headerName={key}
+            isEditing={editingColumnField === key}
+            onRename={handleRenameColumn}
+            onCancelEdit={handleCancelRenameColumn}
+          />
+        ),
+        width: 150,
+        valueGetter: (_, row) => {
           const val = row[key];
           if (val === null) return null;
           if (val === undefined) return '';
@@ -137,7 +172,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
           }
           return String(val);
         },
-        valueFormatter: fieldType === 'date' ? (value) => {
+        valueFormatter: fieldType === 'date' ? (value: any) => {
           if (!value) return '';
           if (value instanceof Date) {
             return value.toLocaleDateString();
@@ -157,7 +192,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
         }
       } as GridColDef;
     });
-  }, [documents, schema, readonly]);
+  }, [documents, schema, readonly, editingColumnField]);
 
   const rows: GridRowsProp = useMemo(() => {
     return documents.map((doc, index) => ({
@@ -167,9 +202,9 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   }, [documents]);
 
 
-  const handleRowEditStop: GridEventListener<'rowEditStop'> = (params, event) => {
+  const handleRowEditStop: GridEventListener<'rowEditStop'> = (params) => {
     if (params.reason === GridRowEditStopReasons.rowFocusOut) {
-      event.defaultMuiPrevented = true;
+      return;
     }
   };
 
@@ -215,6 +250,213 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
     onEditError?.(error.message);
   };
 
+  const extractFieldsFromJsonSchema = (jsonSchema: any): Record<string, string> => {
+    const fields: Record<string, string> = {};
+    
+    // Handle both wrapped ($jsonSchema) and unwrapped formats
+    let schemaProperties;
+    if (jsonSchema && jsonSchema.$jsonSchema && jsonSchema.$jsonSchema.properties) {
+      // Wrapped format: { $jsonSchema: { properties: {...} } }
+      schemaProperties = jsonSchema.$jsonSchema.properties;
+    } else if (jsonSchema && jsonSchema.properties) {
+      // Unwrapped format: { properties: {...} }
+      schemaProperties = jsonSchema.properties;
+    }
+    
+    if (schemaProperties) {
+      Object.entries(schemaProperties).forEach(([field, definition]: [string, any]) => {
+        // Convert back from JSON Schema to our field types
+        if (definition.bsonType) {
+          const bsonType = Array.isArray(definition.bsonType) ? definition.bsonType[0] : definition.bsonType;
+          switch (bsonType) {
+            case 'string':
+              fields[field] = 'string';
+              break;
+            case 'int':
+            case 'long':
+            case 'double':
+              fields[field] = 'number';
+              break;
+            case 'bool':
+              fields[field] = 'boolean';
+              break;
+            case 'date':
+              fields[field] = 'date';
+              break;
+            case 'objectId':
+              fields[field] = 'objectId';
+              break;
+            case 'array':
+              fields[field] = 'array';
+              break;
+            case 'object':
+              fields[field] = 'object';
+              break;
+            default:
+              fields[field] = 'string'; // Default fallback
+          }
+        } else {
+          fields[field] = 'string'; // Default fallback
+        }
+      });
+    }
+    
+    // console.log('extractFieldsFromJsonSchema result:', fields);
+    return fields;
+  };
+
+  const handleAddRow = async (newDocument: Partial<MongoDocument>) => {
+    try {
+      const response = await fetch(`/api/collections/${databaseName}/${collectionName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newDocument),
+      });
+
+      const result: ApiResponse<MongoDocument> = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create document');
+      }
+
+      // Reload documents from server to ensure proper grid refresh
+      await loadDocuments();
+      
+      // Notify callbacks
+      onDocumentChange?.(result.data!);
+      onEditSuccess?.('Document created successfully!');
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create document';
+      onEditError?.(errorMessage);
+    }
+  };
+
+  const handleAddColumn = async (fieldName: string, fieldType: FieldType, defaultValue: string) => {
+    try {
+      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fieldName,
+          fieldType,
+          defaultValue: defaultValue || undefined
+        }),
+      });
+
+      const result: ApiResponse<{ modifiedCount: number }> = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to add column');
+      }
+
+      // Refresh the data and schema
+      await loadSchema();
+      await loadDocuments();
+      
+      onEditSuccess?.(`Column "${fieldName}" added successfully! ${result.data?.modifiedCount || 0} documents updated.`);
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add column';
+      onEditError?.(errorMessage);
+    }
+  };
+
+  const handleStartRenameColumn = (field: string) => {
+    setEditingColumnField(field);
+  };
+
+  const handleCancelRenameColumn = () => {
+    setEditingColumnField(null);
+  };
+
+  const handleRenameColumn = async (oldFieldName: string, newFieldName: string) => {
+    try {
+      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields/${oldFieldName}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          newFieldName
+        }),
+      });
+
+      const result: ApiResponse<{ modifiedCount: number }> = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to rename column');
+      }
+
+      // Refresh the data and schema
+      await loadSchema();
+      await loadDocuments();
+      
+      onEditSuccess?.(`Column renamed from "${oldFieldName}" to "${newFieldName}" successfully! ${result.data?.modifiedCount || 0} documents updated.`);
+      
+      setEditingColumnField(null);
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to rename column';
+      onEditError?.(errorMessage);
+      setEditingColumnField(null);
+    }
+  };
+
+  const handleRemoveColumn = (field: string) => {
+    setRemoveColumnField(field);
+  };
+
+  const confirmRemoveColumn = async () => {
+    if (!removeColumnField) return;
+    setRemovingColumn(true);
+    try {
+      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields/${removeColumnField}`, {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to remove column');
+      }
+      await loadSchema();
+      await loadDocuments();
+      onEditSuccess?.(`Column "${removeColumnField}" removed successfully! ${(result.data?.modifiedCount ?? result.modifiedCount) || 0} documents updated.`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to remove column';
+      onEditError?.(errorMessage);
+    } finally {
+      setRemovingColumn(false);
+      setRemoveColumnField(null);
+    }
+  };
+
+  const cancelRemoveColumn = () => {
+    setRemoveColumnField(null);
+  };
+
+  // Get all existing field names for validation
+  const existingFields = useMemo(() => {
+    const fieldSet = new Set<string>();
+    
+    if (schema) {
+      Object.keys(schema).forEach(field => fieldSet.add(field));
+    }
+    
+    documents.forEach(doc => {
+      Object.keys(doc).forEach(field => {
+        if (field !== 'id') {
+          fieldSet.add(field);
+        }
+      });
+    });
+    
+    return Array.from(fieldSet);
+  }, [documents, schema]);
+
   if (error) {
     return (
       <Alert severity="error">
@@ -238,6 +480,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
       
       <Box sx={{ flexGrow: 1, minHeight: 0 }}>
         <DataGrid
+          apiRef={apiRef}
           rows={rows}
           columns={columns}
           loading={loading}
@@ -251,10 +494,34 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
             setPageSize(model.pageSize);
           }}
           pageSizeOptions={[10, 25, 50, 100]}
-          disableSelectionOnClick
-          disableColumnFilter
-          disableColumnMenu
-          disableDensitySelector
+          slots={{
+            toolbar: CustomGridToolbar,
+            columnMenu: (props) => (
+              <CustomColumnMenu
+                {...props}
+                onRenameColumn={handleStartRenameColumn}
+                onRemoveColumn={handleRemoveColumn}
+                readonly={readonly}
+              />
+            ),
+          }}
+          slotProps={{
+            toolbar: {
+              onAddRow: () => setAddRowModalOpen(true),
+              onAddColumn: () => setAddColumnModalOpen(true),
+              readonly: readonly
+            } as any
+          }}
+          // disableRowSelectionOnClick
+          // disableColumnFilter
+          // disableDensitySelector
+          initialState={{
+            columns: {
+              columnVisibilityModel: {
+                _id: false,
+              },
+            },
+          }}
           editMode="row"
           rowModesModel={rowModesModel}
           onRowModesModelChange={setRowModesModel}
@@ -264,18 +531,49 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
           sx={{
             height: '100%',
             '& .MuiDataGrid-cell': {
-              fontSize: '0.875rem'
+              fontSize: '0.875rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.04)'
             },
             '& .MuiDataGrid-columnHeader': {
               fontSize: '0.875rem',
               fontWeight: 600
             },
             '& .MuiDataGrid-cell--editable': {
-              backgroundColor: 'rgba(0, 0, 0, 0.04)'
+              backgroundColor: 'transparent'
             }
           }}
         />
       </Box>
+
+      <AddRowModal
+        open={addRowModalOpen}
+        onClose={() => setAddRowModalOpen(false)}
+        onSubmit={handleAddRow}
+        existingDocuments={documents}
+        schema={schema || undefined}
+      />
+
+      <AddColumnModal
+        open={addColumnModalOpen}
+        onClose={() => setAddColumnModalOpen(false)}
+        onSubmit={handleAddColumn}
+        existingFields={existingFields}
+      />
+
+      <Dialog open={!!removeColumnField} onClose={cancelRemoveColumn}>
+        <DialogTitle>Remove Column</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to remove the column "{removeColumnField}" from all documents? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={cancelRemoveColumn} disabled={removingColumn}>Cancel</Button>
+          <Button onClick={confirmRemoveColumn} color="error" disabled={removingColumn} autoFocus>
+            Remove
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

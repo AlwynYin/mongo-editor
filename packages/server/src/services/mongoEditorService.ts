@@ -277,6 +277,39 @@ export class MongoEditorService {
     }
   }
 
+  async createDocument(
+    databaseName: string,
+    collectionName: string, 
+    documentData: any
+  ): Promise<ApiResponse<MongoDocument>> {
+    try {
+      const collection = this.getDB(databaseName).collection(collectionName);
+      
+      // Remove any existing _id from the data to let MongoDB generate it
+      const { _id, ...dataWithoutId } = documentData;
+      
+      const result = await collection.insertOne(dataWithoutId);
+      
+      if (!result.insertedId) {
+        return { success: false, error: 'Failed to create document' };
+      }
+
+      // Get the created document
+      const createdDoc = await collection.findOne({ _id: result.insertedId });
+      
+      if (!createdDoc) {
+        return { success: false, error: 'Failed to retrieve created document' };
+      }
+
+      return { success: true, data: createdDoc };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to create document' 
+      };
+    }
+  }
+
   async deleteDocument(
     databaseName: string,
     collectionName: string, 
@@ -303,6 +336,355 @@ export class MongoEditorService {
         error: error instanceof Error ? error.message : 'Failed to delete document' 
       };
     }
+  }
+
+  async addFieldToCollection(
+    databaseName: string,
+    collectionName: string,
+    fieldName: string,
+    fieldType: string,
+    defaultValue?: any
+  ): Promise<ApiResponse<{ modifiedCount: number }>> {
+    try {
+      const collection = this.getDB(databaseName).collection(collectionName);
+      
+      // Validate field name
+      if (!fieldName || fieldName.trim() === '') {
+        return { success: false, error: 'Field name cannot be empty' };
+      }
+      
+      // Get current schema state
+      const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+      let hasJsonSchema = false;
+      let currentSchema: Record<string, string> = {};
+      
+      if (schemaResponse.success && schemaResponse.data) {
+        if (schemaResponse.data.jsonSchema) {
+          // Collection has formal JSON Schema
+          hasJsonSchema = true;
+          currentSchema = this.extractFieldsFromJsonSchema(schemaResponse.data.jsonSchema);
+        } else if (schemaResponse.data.inferredSchema) {
+          // Collection only has inferred schema
+          hasJsonSchema = false;
+          currentSchema = schemaResponse.data.inferredSchema;
+        }
+        
+        // Check if field already exists in either schema type
+        if (fieldName in currentSchema) {
+          return { success: false, error: 'Field already exists' };
+        }
+      } else {
+        // Fallback: get one row instead
+        const sampleDoc = await collection.findOne({});
+        if (sampleDoc && fieldName in sampleDoc) {
+          return { success: false, error: 'Field already exists' };
+        }
+      }
+
+      
+      // Convert defaultValue based on fieldType
+      let convertedDefaultValue = defaultValue;
+      if (defaultValue !== undefined && defaultValue !== null) {
+        convertedDefaultValue = this.convertValueByType(defaultValue, fieldType);
+      } else {
+        // If no default value provided, use null (MongoDB null type)
+        convertedDefaultValue = null;
+      }
+      
+      // Add field to all documents that don't have it
+      const result = await collection.updateMany(
+        { [fieldName]: { $exists: false } },
+        { $set: { [fieldName]: convertedDefaultValue } }
+      );
+
+      // Update or create JSON Schema
+      try {
+        if (hasJsonSchema) {
+          // Update existing JSON Schema by adding the new field
+          const updatedSchema = { ...currentSchema, [fieldName]: fieldType };
+          const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
+          await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+        } else if (Object.keys(currentSchema).length > 0) {
+          // Create new JSON Schema from inferred schema + new field
+          const newSchema = { ...currentSchema, [fieldName]: fieldType };
+          const jsonSchema = this.convertInferredSchemaToJsonSchema(newSchema);
+          const schemaApplied = await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          
+          if (schemaApplied) {
+            console.log(`Created JSON Schema for collection ${databaseName}.${collectionName}`);
+          }
+        } else {
+          // Empty collection - create minimal schema with just _id and new field
+          const minimalSchema = { _id: 'objectId', [fieldName]: fieldType };
+          const jsonSchema = this.convertInferredSchemaToJsonSchema(minimalSchema);
+          await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+        }
+      } catch (error) {
+        // Schema update failed, but document update succeeded
+        console.warn(`Document update succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        // Don't return error - the main operation (adding field to documents) succeeded
+      }
+
+      return { 
+        success: true, 
+        data: { modifiedCount: result.modifiedCount } 
+      };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to add field to collection' 
+      };
+    }
+  }
+
+  async renameField(
+    databaseName: string,
+    collectionName: string,
+    oldFieldName: string,
+    newFieldName: string
+  ): Promise<ApiResponse<{ modifiedCount: number }>> {
+    try {
+      const collection = this.getDB(databaseName).collection(collectionName);
+      
+      // Validate field names
+      if (!oldFieldName || !newFieldName || oldFieldName.trim() === '' || newFieldName.trim() === '') {
+        return { success: false, error: 'Field names cannot be empty' };
+      }
+      
+      if (oldFieldName === newFieldName) {
+        return { success: false, error: 'New field name must be different from current name' };
+      }
+      
+      // Check if old field exists
+      const docWithOldField = await collection.findOne({ [oldFieldName]: { $exists: true } });
+      if (!docWithOldField) {
+        return { success: false, error: 'Field to rename does not exist' };
+      }
+      
+      // Check if new field name already exists
+      const docWithNewField = await collection.findOne({ [newFieldName]: { $exists: true } });
+      if (docWithNewField) {
+        return { success: false, error: 'A field with the new name already exists' };
+      }
+      
+      // Rename field in all documents
+      const result = await collection.updateMany(
+        { [oldFieldName]: { $exists: true } },
+        { $rename: { [oldFieldName]: newFieldName } }
+      );
+
+      // Update JSON Schema if it exists
+      try {
+        const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+        if (schemaResponse.success && schemaResponse.data && schemaResponse.data.jsonSchema) {
+          const currentSchema = this.extractFieldsFromJsonSchema(schemaResponse.data.jsonSchema);
+          
+          if (oldFieldName in currentSchema) {
+            // Update schema: remove old field, add new field with same type
+            const fieldType = currentSchema[oldFieldName];
+            const updatedSchema = { ...currentSchema };
+            delete updatedSchema[oldFieldName];
+            updatedSchema[newFieldName] = fieldType;
+            
+            const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
+            await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          }
+        }
+      } catch (error) {
+        // Schema update failed, but document update succeeded
+        console.warn(`Field rename succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        // Don't return error - the main operation succeeded
+      }
+
+      return { 
+        success: true, 
+        data: { modifiedCount: result.modifiedCount } 
+      };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to rename field' 
+      };
+    }
+  }
+
+  async removeFieldFromCollection(
+    databaseName: string,
+    collectionName: string,
+    fieldName: string
+  ): Promise<ApiResponse<{ modifiedCount: number }>> {
+    try {
+      // Update JSON Schema if it exists, or create one from inferred schema if not
+      try {
+        const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+        if (schemaResponse.success && schemaResponse.data) {
+          let currentSchema: Record<string, string> = {};
+          if (schemaResponse.data.jsonSchema) {
+            currentSchema = this.extractFieldsFromJsonSchema(schemaResponse.data.jsonSchema);
+          } else if (schemaResponse.data.inferredSchema) {
+            currentSchema = schemaResponse.data.inferredSchema;
+          }
+          if (fieldName in currentSchema) {
+            const updatedSchema = { ...currentSchema };
+            delete updatedSchema[fieldName];
+            const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
+            await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          }
+        }
+      } catch (error) {
+        // Schema update failed, but document update succeeded
+        console.warn(`Field removal succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        // Don't return error - the main operation succeeded
+      }
+
+      // update documents
+      const collection = this.getDB(databaseName).collection(collectionName);
+      const unsetQuery = { [fieldName]: { $exists: true } };
+      const updateResult = await collection.updateMany(
+        unsetQuery,
+        { $unset: { [fieldName]: "" } }
+      );
+      // console.log(`[removeFieldFromCollection] field: ${fieldName}, query:`, unsetQuery, `matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount}`);
+
+      return {
+        success: true,
+        data: { modifiedCount: updateResult.modifiedCount }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to remove field from collection'
+      };
+    }
+  }
+
+  private convertValueByType(value: any, fieldType: string): any {
+    switch (fieldType) {
+      case 'number':
+        const num = parseFloat(value);
+        return isNaN(num) ? 0 : num;
+      case 'boolean':
+        return Boolean(value);
+      case 'date':
+        return new Date(value);
+      case 'string':
+      default:
+        return String(value);
+    }
+  }
+
+  private getDefaultValueForType(fieldType: string): any {
+    switch (fieldType) {
+      case 'number':
+        return 0;
+      case 'boolean':
+        return false;
+      case 'date':
+        return new Date();
+      case 'string':
+      default:
+        return '';
+    }
+  }
+
+  private mapFieldTypeToJsonSchema(fieldType: string): object {
+    switch (fieldType) {
+      case 'string':
+        return { bsonType: "string" };
+      case 'number':
+        return { bsonType: ["int", "long", "double"] };
+      case 'boolean':
+        return { bsonType: "bool" };
+      case 'date':
+        return { bsonType: "date" };
+      case 'objectId':
+        return { bsonType: "objectId" };
+      case 'array':
+        return { bsonType: "array" };
+      case 'object':
+        return { bsonType: "object" };
+      default:
+        return { bsonType: ["string", "null"] }; // Flexible fallback
+    }
+  }
+
+  private convertInferredSchemaToJsonSchema(inferredSchema: Record<string, string>): object {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+    
+    Object.entries(inferredSchema).forEach(([field, type]) => {
+      properties[field] = this.mapFieldTypeToJsonSchema(type);
+      if (field === '_id') required.push(field); // _id always required
+    });
+    
+    return {
+      $jsonSchema: {
+        bsonType: "object",
+        properties,
+        required,
+        additionalProperties: true // Always allow extra fields
+      }
+    };
+  }
+
+  private async applyJsonSchemaToCollection(
+    databaseName: string,
+    collectionName: string,
+    jsonSchema: object
+  ): Promise<boolean> {
+    try {
+      const db = this.getDB(databaseName);
+      await db.command({
+        collMod: collectionName,
+        validator: jsonSchema
+      });
+      return true;
+    } catch (error) {
+      console.warn(`Failed to apply JSON Schema to ${databaseName}.${collectionName}:`, error);
+      return false; // Non-blocking failure
+    }
+  }
+
+  private extractFieldsFromJsonSchema(jsonSchema: any): Record<string, string> {
+    const fields: Record<string, string> = {};
+    
+    if (jsonSchema && jsonSchema.properties) {
+      Object.entries(jsonSchema.properties).forEach(([field, definition]: [string, any]) => {
+        // Convert back from JSON Schema to our field types
+        if (definition.bsonType) {
+          const bsonType = Array.isArray(definition.bsonType) ? definition.bsonType[0] : definition.bsonType;
+          switch (bsonType) {
+            case 'string':
+              fields[field] = 'string';
+              break;
+            case 'int':
+            case 'long':
+            case 'double':
+              fields[field] = 'number';
+              break;
+            case 'bool':
+              fields[field] = 'boolean';
+              break;
+            case 'date':
+              fields[field] = 'date';
+              break;
+            case 'objectId':
+              fields[field] = 'objectId';
+              break;
+            case 'array':
+              fields[field] = 'array';
+              break;
+            case 'object':
+              fields[field] = 'object';
+              break;
+            default:
+              fields[field] = 'unknown';
+          }
+        }
+      });
+    }
+    
+    return fields;
   }
 
   async testConnection(databaseName: string): Promise<ApiResponse<{ status: string; database: string }>> {
