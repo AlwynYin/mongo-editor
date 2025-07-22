@@ -198,7 +198,14 @@ export class MongoEditorService {
       return 'null';
     }
     
-    // Check for ObjectId (MongoDB ObjectId pattern)
+    // Check for ObjectId (MongoDB ObjectId - has _id property and toString() returns 24-char hex)
+    if (typeof value === 'object' && value !== null && 
+        typeof value.toString === 'function' && 
+        /^[0-9a-fA-F]{24}$/.test(value.toString())) {
+      return 'objectId';
+    }
+    
+    // Check for ObjectId string pattern
     if (typeof value === 'string' && /^[0-9a-fA-F]{24}$/.test(value)) {
       return 'objectId';
     }
@@ -514,7 +521,28 @@ export class MongoEditorService {
     fieldName: string
   ): Promise<ApiResponse<{ modifiedCount: number }>> {
     try {
-      // Update JSON Schema if it exists, or create one from inferred schema if not
+      const db = this.getDB(databaseName);
+      
+      // Temporarily disable validation to avoid conflicts during field removal
+      try {
+        await db.command({
+          collMod: collectionName,
+          validator: {},
+          validationLevel: "off"
+        });
+      } catch (error) {
+        console.warn(`Failed to disable validation temporarily for ${databaseName}.${collectionName}:`, error);
+      }
+
+      // Remove the field from all documents
+      const collection = db.collection(collectionName);
+      const unsetQuery = { [fieldName]: { $exists: true } };
+      const updateResult = await collection.updateMany(
+        unsetQuery,
+        { $unset: { [fieldName]: "" } }
+      );
+
+      // Update JSON Schema if it exists
       try {
         const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
         if (schemaResponse.success && schemaResponse.data) {
@@ -534,23 +562,25 @@ export class MongoEditorService {
       } catch (error) {
         // Schema update failed, but document update succeeded
         console.warn(`Field removal succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
-        // Don't return error - the main operation succeeded
+        // Re-enable basic validation even if schema update failed
+        try {
+          await db.command({
+            collMod: collectionName,
+            validator: {},
+            validationLevel: "moderate",
+            validationAction: "warn"
+          });
+        } catch (validationError) {
+          console.warn(`Failed to re-enable validation for ${databaseName}.${collectionName}:`, validationError);
+        }
       }
-
-      // update documents
-      const collection = this.getDB(databaseName).collection(collectionName);
-      const unsetQuery = { [fieldName]: { $exists: true } };
-      const updateResult = await collection.updateMany(
-        unsetQuery,
-        { $unset: { [fieldName]: "" } }
-      );
-      // console.log(`[removeFieldFromCollection] field: ${fieldName}, query:`, unsetQuery, `matched: ${updateResult.matchedCount}, modified: ${updateResult.modifiedCount}`);
 
       return {
         success: true,
         data: { modifiedCount: updateResult.modifiedCount }
       };
     } catch (error) {
+      console.error(`[removeFieldFromCollection] Error removing field ${fieldName} from ${databaseName}.${collectionName}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to remove field from collection'
@@ -636,7 +666,9 @@ export class MongoEditorService {
       const db = this.getDB(databaseName);
       await db.command({
         collMod: collectionName,
-        validator: jsonSchema
+        validator: jsonSchema,
+        validationLevel: "moderate", // Only validate inserts and updates to conforming docs
+        validationAction: "warn" // Log validation errors but don't prevent operations
       });
       return true;
     } catch (error) {
@@ -648,8 +680,16 @@ export class MongoEditorService {
   private extractFieldsFromJsonSchema(jsonSchema: any): Record<string, string> {
     const fields: Record<string, string> = {};
     
-    if (jsonSchema && jsonSchema.properties) {
-      Object.entries(jsonSchema.properties).forEach(([field, definition]: [string, any]) => {
+    // Handle both wrapped ($jsonSchema) and unwrapped formats
+    let schemaProperties;
+    if (jsonSchema && jsonSchema.$jsonSchema && jsonSchema.$jsonSchema.properties) {
+      schemaProperties = jsonSchema.$jsonSchema.properties;
+    } else if (jsonSchema && jsonSchema.properties) {
+      schemaProperties = jsonSchema.properties;
+    }
+    
+    if (schemaProperties) {
+      Object.entries(schemaProperties).forEach(([field, definition]: [string, any]) => {
         // Convert back from JSON Schema to our field types
         if (definition.bsonType) {
           const bsonType = Array.isArray(definition.bsonType) ? definition.bsonType[0] : definition.bsonType;
