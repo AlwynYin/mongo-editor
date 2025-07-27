@@ -1,47 +1,14 @@
 import express, { Router } from 'express';
 import { MongoEditorService } from '../services/mongoEditorService';
-import { getMongoClient } from '../mongoConnection';
 
 const collectionsRouter: Router = express.Router();
 
-// List all databases
-collectionsRouter.get('/databases', async (req, res) => {
-  try {
-    const client = getMongoClient();
-    if (!client) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'MongoDB client not initialized' 
-      });
-    }
 
-    const admin = client.db().admin();
-    const result = await admin.listDatabases();
-    const databases = result.databases.map(db => db.name);
-    
-    res.json({ success: true, data: databases });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Failed to list databases' 
-    });
-  }
-});
-
-// Test connection to a specific database
+// Test connection to the configured database
 collectionsRouter.post('/test-connection', async (req, res) => {
   try {
-    const { databaseName } = req.body;
-    
-    if (!databaseName) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Database name is required' 
-      });
-    }
-
     const service = MongoEditorService.getInstance();
-    const result = await service.testConnection(databaseName);
+    const result = await service.testConnection();
     
     if (result.success) {
       res.json(result);
@@ -56,12 +23,11 @@ collectionsRouter.post('/test-connection', async (req, res) => {
   }
 });
 
-// List collections in a database
-collectionsRouter.get('/:database', async (req, res) => {
+// List collections in the configured database
+collectionsRouter.get('/', async (req, res) => {
   try {
-    const { database } = req.params;
     const service = MongoEditorService.getInstance();
-    const result = await service.listCollections(database);
+    const result = await service.listCollections();
     
     if (result.success) {
       res.json(result);
@@ -77,12 +43,12 @@ collectionsRouter.get('/:database', async (req, res) => {
 });
 
 // Get collection statistics
-collectionsRouter.get('/:database/:collection/stats', async (req, res) => {
+collectionsRouter.get('/:collection/stats', async (req, res) => {
   try {
-    const { database, collection } = req.params;
+    const { collection } = req.params;
     
     const service = MongoEditorService.getInstance();
-    const result = await service.getCollectionStats(database, collection);
+    const result = await service.getCollectionStats(collection);
     
     if (result.success) {
       res.json(result);
@@ -98,12 +64,12 @@ collectionsRouter.get('/:database/:collection/stats', async (req, res) => {
 });
 
 // Get collection schema
-collectionsRouter.get('/:database/:collection/schema', async (req, res) => {
+collectionsRouter.get('/:collection/schema', async (req, res) => {
   try {
-    const { database, collection } = req.params;
+    const { collection } = req.params;
     
     const service = MongoEditorService.getInstance();
-    const result = await service.getCollectionSchema(database, collection);
+    const result = await service.getCollectionSchema(collection);
     
     if (result.success) {
       res.json(result);
@@ -119,14 +85,13 @@ collectionsRouter.get('/:database/:collection/schema', async (req, res) => {
 });
 
 // Get documents from a collection
-collectionsRouter.get('/:database/:collection', async (req, res) => {
+collectionsRouter.get('/:collection', async (req, res) => {
   try {
-    const { database, collection } = req.params;
+    const { collection } = req.params;
     const { page = '1', limit = '25' } = req.query;
     
     const service = MongoEditorService.getInstance();
     const result = await service.getDocuments(
-      database,
       collection, 
       parseInt(page as string), 
       parseInt(limit as string)
@@ -146,13 +111,13 @@ collectionsRouter.get('/:database/:collection', async (req, res) => {
 });
 
 // Update a document
-collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
+collectionsRouter.put('/:collection/:id', async (req, res) => {
   try {
-    const { database, collection, id } = req.params;
+    const { collection, id } = req.params;
     const updateData = req.body;
     
     const service = MongoEditorService.getInstance();
-    const result = await service.updateDocument(database, collection, id, updateData);
+    const result = await service.updateDocument(collection, id, updateData);
     
     if (result.success) {
       res.json(result);
@@ -168,13 +133,13 @@ collectionsRouter.put('/:database/:collection/:id', async (req, res) => {
 });
 
 // Create a new document
-collectionsRouter.post('/:database/:collection', async (req, res) => {
+collectionsRouter.post('/:collection', async (req, res) => {
   try {
-    const { database, collection } = req.params;
+    const { collection } = req.params;
     const documentData = req.body;
     
     const service = MongoEditorService.getInstance();
-    const result = await service.createDocument(database, collection, documentData);
+    const result = await service.createDocument(collection, documentData);
     
     if (result.success) {
       res.json(result);
@@ -190,12 +155,12 @@ collectionsRouter.post('/:database/:collection', async (req, res) => {
 });
 
 // Delete a document
-collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
+collectionsRouter.delete('/:collection/:id', async (req, res) => {
   try {
-    const { database, collection, id } = req.params;
+    const { collection, id } = req.params;
     
     const service = MongoEditorService.getInstance();
-    const result = await service.deleteDocument(database, collection, id);
+    const result = await service.deleteDocument(collection, id);
     
     if (result.success) {
       res.json(result);
@@ -211,9 +176,9 @@ collectionsRouter.delete('/:database/:collection/:id', async (req, res) => {
 });
 
 // Add field to all documents in collection
-collectionsRouter.post('/:database/:collection/fields', async (req, res) => {
+collectionsRouter.post('/:collection/fields', async (req, res) => {
   try {
-    const { database, collection } = req.params;
+    const { collection } = req.params;
     const { fieldName, fieldType, defaultValue } = req.body;
     
     if (!fieldName || !fieldType) {
@@ -224,7 +189,7 @@ collectionsRouter.post('/:database/:collection/fields', async (req, res) => {
     }
     
     const service = MongoEditorService.getInstance();
-    const result = await service.addFieldToCollection(database, collection, fieldName, fieldType, defaultValue);
+    const result = await service.addFieldToCollection(collection, fieldName, fieldType, defaultValue);
     
     if (result.success) {
       res.json(result);
@@ -240,9 +205,9 @@ collectionsRouter.post('/:database/:collection/fields', async (req, res) => {
 });
 
 // Rename field in all documents in collection
-collectionsRouter.put('/:database/:collection/fields/:fieldName', async (req, res) => {
+collectionsRouter.put('/:collection/fields/:fieldName', async (req, res) => {
   try {
-    const { database, collection, fieldName } = req.params;
+    const { collection, fieldName } = req.params;
     const { newFieldName } = req.body;
     
     if (!newFieldName) {
@@ -253,7 +218,7 @@ collectionsRouter.put('/:database/:collection/fields/:fieldName', async (req, re
     }
     
     const service = MongoEditorService.getInstance();
-    const result = await service.renameField(database, collection, fieldName, newFieldName);
+    const result = await service.renameField(collection, fieldName, newFieldName);
     
     if (result.success) {
       res.json(result);
@@ -269,11 +234,11 @@ collectionsRouter.put('/:database/:collection/fields/:fieldName', async (req, re
 });
 
 // Remove field from all documents in collection
-collectionsRouter.delete('/:database/:collection/fields/:fieldName', async (req, res) => {
+collectionsRouter.delete('/:collection/fields/:fieldName', async (req, res) => {
   try {
-    const { database, collection, fieldName } = req.params;
+    const { collection, fieldName } = req.params;
     const service = MongoEditorService.getInstance();
-    const result = await service.removeFieldFromCollection(database, collection, fieldName);
+    const result = await service.removeFieldFromCollection(collection, fieldName);
     if (result.success) {
       res.json(result);
     } else {

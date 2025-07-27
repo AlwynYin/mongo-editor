@@ -11,7 +11,6 @@ import { CustomColumnMenu } from './CustomColumnMenu';
 import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from '@mui/material';
 
 interface CollectionDataGridProps {
-  databaseName: string;
   collectionName: string;
   readonly?: boolean;
   onDocumentChange?: (document: MongoDocument) => void;
@@ -20,7 +19,6 @@ interface CollectionDataGridProps {
 }
 
 export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
-  databaseName,
   collectionName,
   readonly = false,
   onDocumentChange,
@@ -47,18 +45,18 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
   const apiRef = useGridApiRef();
 
   useEffect(() => {
-    if (databaseName && collectionName) {
+    if (collectionName) {
       console.log(`Loading documents - page: ${page + 1}, pageSize: ${pageSize}`);
       loadDocuments();
     }
-  }, [databaseName, collectionName, page, pageSize]);
+  }, [collectionName, page, pageSize]);
 
   // Load schema when collection changes
   useEffect(() => {
-    if (databaseName && collectionName) {
+    if (collectionName) {
       loadSchema();
     }
-  }, [databaseName, collectionName]);
+  }, [collectionName]);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -70,7 +68,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
         limit: pageSize.toString()
       });
       
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}?${params}`);
+      const response = await fetch(`/api/collections/${collectionName}?${params}`);
       const result: ApiResponse<PaginatedResult<MongoDocument>> = await response.json();
       
       if (result.success && result.data) {
@@ -88,7 +86,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
   const loadSchema = async () => {
     try {
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/schema`);
+      const response = await fetch(`/api/collections/${collectionName}/schema`);
       const result = await response.json();
       
       if (result.success && result.data) {
@@ -218,7 +216,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
       const params = new URLSearchParams();
 
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/${newRow._id}?${params}`, {
+      const response = await fetch(`/api/collections/${collectionName}/${newRow._id}?${params}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -310,7 +308,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
   const handleAddRow = async (newDocument: Partial<MongoDocument>) => {
     try {
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}`, {
+      const response = await fetch(`/api/collections/${collectionName}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -339,7 +337,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
   const handleAddColumn = async (fieldName: string, fieldType: FieldType, defaultValue: string) => {
     try {
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields`, {
+      const response = await fetch(`/api/collections/${collectionName}/fields`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -379,7 +377,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
   const handleRenameColumn = async (oldFieldName: string, newFieldName: string) => {
     try {
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields/${oldFieldName}`, {
+      const response = await fetch(`/api/collections/${collectionName}/fields/${oldFieldName}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -418,7 +416,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
     if (!removeColumnField) return;
     setRemovingColumn(true);
     try {
-      const response = await fetch(`/api/collections/${databaseName}/${collectionName}/fields/${removeColumnField}`, {
+      const response = await fetch(`/api/collections/${collectionName}/fields/${removeColumnField}`, {
         method: 'DELETE',
       });
       const result = await response.json();
@@ -459,7 +457,7 @@ export const CollectionDataGrid: React.FC<CollectionDataGridProps> = ({
 
     try {
       const deletePromises = rowSelectionModel.map(async (rowId) => {
-        const response = await fetch(`/api/collections/${databaseName}/${collectionName}/${rowId}`, {
+        const response = await fetch(`/api/collections/${collectionName}/${rowId}`, {
           method: 'DELETE',
         });
 

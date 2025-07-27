@@ -5,7 +5,6 @@ import { CollectionDataGrid } from './CollectionDataGrid';
 import { MongoDocument } from '@mongo-editor/shared';
 
 export interface MongoCollectionEditorProps {
-  databaseName?: string;
   collectionName?: string;
   readonly?: boolean;
   onDocumentChange?: (document: MongoDocument) => void;
@@ -13,13 +12,11 @@ export interface MongoCollectionEditorProps {
 }
 
 export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
-  databaseName: initialDatabaseName,
   collectionName: initialCollectionName,
   readonly = false,
   onDocumentChange,
   onConnectionError
 }) => {
-  const [databaseName, setDatabaseName] = useState(initialDatabaseName || '');
   const [collectionName, setCollectionName] = useState(initialCollectionName || '');
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +28,6 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
 
   // Grid refresh trigger
   const [gridRefreshKey, setGridRefreshKey] = useState(0);
-
-
-
 
   const handleConnectionSuccess = () => {
     setIsConnected(true);
@@ -75,9 +69,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
 
       <Paper sx={{ p: 2, mb: 2 }}>
         <DatabaseCollectionSelector
-          databaseName={databaseName}
           collectionName={collectionName}
-          onDatabaseNameChange={setDatabaseName}
           onCollectionChange={handleCollectionChange}
           onConnectionSuccess={handleConnectionSuccess}
           onConnectionError={handleConnectionError}
@@ -85,7 +77,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
         />
       </Paper>
 
-      {isConnected && databaseName && collectionName && (
+      {isConnected && collectionName && (
         <Paper sx={{ 
           p: 2, 
           flexGrow: 1, 
@@ -96,7 +88,6 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
         }}>
           <CollectionDataGrid
             key={gridRefreshKey}
-            databaseName={databaseName}
             collectionName={collectionName}
             readonly={readonly}
             onDocumentChange={onDocumentChange}

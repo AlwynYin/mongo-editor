@@ -15,9 +15,7 @@ import {
 import { ApiResponse } from '@mongo-editor/shared';
 
 interface DatabaseCollectionSelectorProps {
-  databaseName: string;
   collectionName: string;
-  onDatabaseNameChange: (dbName: string) => void;
   onCollectionChange: (collectionName: string) => void;
   onConnectionSuccess: () => void;
   onConnectionError: (error: string) => void;
@@ -25,63 +23,37 @@ interface DatabaseCollectionSelectorProps {
 }
 
 export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProps> = ({
-  databaseName,
   collectionName,
-  onDatabaseNameChange,
   onCollectionChange,
   onConnectionSuccess,
   onConnectionError,
   isConnected
 }) => {
-  const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
   const [availableCollections, setAvailableCollections] = useState<string[]>([]);
-  const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [loadingCollections, setLoadingCollections] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  // const [statusMessage, setStatusMessage] = useState<string>('');
 
-  // Load available databases on component mount
+  // Auto-connect on component mount
   useEffect(() => {
-    loadAvailableDatabases();
-  }, []);
-
-  // Auto-connect when database is selected
-  useEffect(() => {
-    if (databaseName && !isConnected) {
+    if (!isConnected) {
       testConnection();
     }
-  }, [databaseName]);
+  }, []);
 
   // Load collections when database is connected
   useEffect(() => {
-    if (isConnected && databaseName) {
+    if (isConnected) {
       loadCollections();
     }
-  }, [isConnected, databaseName]);
+  }, [isConnected]);
 
-  const loadAvailableDatabases = async () => {
-    setLoadingDatabases(true);
-    try {
-      const response = await fetch('/api/collections/databases');
-      const result: ApiResponse<string[]> = await response.json();
-      
-      if (result.success) {
-        setAvailableDatabases(result.data || []);
-      } else {
-        console.error('Failed to load databases:', result.error);
-      }
-    } catch (error) {
-      console.error('Failed to load databases:', error);
-    } finally {
-      setLoadingDatabases(false);
-    }
-  };
 
   const loadCollections = async () => {
     setLoadingCollections(true);
     try {
-      const response = await fetch(`/api/collections/${databaseName}`);
+      const response = await fetch('/api/collections/');
       const result: ApiResponse<string[]> = await response.json();
       
       if (result.success && result.data) {
@@ -99,11 +71,6 @@ export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProp
   };
 
   const testConnection = async () => {
-    if (!databaseName.trim()) {
-      onConnectionError('Database name is required');
-      return;
-    }
-
     setConnecting(true);
     setConnectionStatus('idle');
     
@@ -113,71 +80,47 @@ export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProp
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          databaseName: databaseName.trim()
-        }),
+        body: JSON.stringify({}),
       });
 
       const result: ApiResponse = await response.json();
       
       if (result.success) {
         setConnectionStatus('success');
-        setStatusMessage('Connected successfully!');
+        // setStatusMessage('Connected successfully!');
         onConnectionSuccess();
       } else {
         setConnectionStatus('error');
-        setStatusMessage(result.error || 'Connection failed');
+        // setStatusMessage(result.error || 'Connection failed');
         onConnectionError(result.error || 'Connection failed');
       }
     } catch (error) {
       setConnectionStatus('error');
       const errorMessage = error instanceof Error ? error.message : 'Network error';
-      setStatusMessage(errorMessage);
+      // setStatusMessage(errorMessage);
       onConnectionError(errorMessage);
     } finally {
       setConnecting(false);
     }
   };
 
-  const handleDatabaseChange = (dbName: string) => {
-    onDatabaseNameChange(dbName);
-    onCollectionChange(''); // Clear collection when database changes
-    setConnectionStatus('idle');
-  };
 
   return (
     <Box>
       <Typography variant="h6" gutterBottom>
-        Database & Collection Selection
+        Collection Selection
       </Typography>
       
       <Grid container spacing={2} alignItems="center">
-        {/* Database Selection */}
-        <Grid item xs={12} md={4}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Database</InputLabel>
-            <Select
-              value={databaseName}
-              onChange={(e) => handleDatabaseChange(e.target.value)}
-              label="Database"
-              disabled={loadingDatabases}
-            >
-              {availableDatabases.map(db => (
-                <MenuItem key={db} value={db}>{db}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-
         {/* Collection Selection */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={6}>
           <FormControl fullWidth size="small">
             <InputLabel>Collection</InputLabel>
             <Select
               value={collectionName}
               onChange={(e) => onCollectionChange(e.target.value)}
               label="Collection"
-              disabled={!isConnected || loadingCollections || !databaseName}
+              disabled={!isConnected || loadingCollections}
             >
               {availableCollections.map(collection => (
                 <MenuItem key={collection} value={collection}>{collection}</MenuItem>
@@ -187,22 +130,22 @@ export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProp
         </Grid>
 
         {/* Status & Actions */}
-        {/* <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={6}>
           <Box display="flex" alignItems="center" gap={1}>
             {connecting && <CircularProgress size={20} />}
             
-            {isConnected && (
-              <Chip 
-                label="Connected" 
-                color="success" 
-                size="small"
-                variant="outlined"
-              />
-            )}
+            {/*{isConnected && (*/}
+            {/*  <Chip */}
+            {/*    label={`Connected to ${FIXED_DATABASE_NAME}`}*/}
+            {/*    color="success" */}
+            {/*    size="small"*/}
+            {/*    variant="outlined"*/}
+            {/*  />*/}
+            {/*)}*/}
             
             {connectionStatus === 'error' && (
               <Chip 
-                label="Error" 
+                label="Connection Error" 
                 color="error" 
                 size="small"
                 variant="outlined"
@@ -211,24 +154,24 @@ export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProp
 
             <Button
               variant="outlined"
-              onClick={loadAvailableDatabases}
-              disabled={loadingDatabases}
+              onClick={loadCollections}
+              disabled={loadingCollections || !isConnected}
               size="small"
             >
-              {loadingDatabases ? <CircularProgress size={16} /> : 'Refresh'}
+              {loadingCollections ? <CircularProgress size={16} /> : 'Refresh'}
             </Button>
           </Box>
-        </Grid> */}
+        </Grid>
       </Grid>
 
-      {/* Status Message */}
-      {connectionStatus !== 'idle' && statusMessage && (
-        <Box mt={2}>
-          <Alert severity={connectionStatus === 'success' ? 'success' : 'error'}>
-            {statusMessage}
-          </Alert>
-        </Box>
-      )}
+      {/*/!* Status Message *!/*/}
+      {/*{connectionStatus !== 'idle' && statusMessage && (*/}
+      {/*  <Box mt={2}>*/}
+      {/*    <Alert severity={connectionStatus === 'success' ? 'success' : 'error'}>*/}
+      {/*      {statusMessage}*/}
+      {/*    </Alert>*/}
+      {/*  </Box>*/}
+      {/*)}*/}
 
       {/* Loading Collections */}
       {loadingCollections && (
@@ -243,8 +186,7 @@ export const DatabaseCollectionSelector: React.FC<DatabaseCollectionSelectorProp
       {/* Helper Text */}
       <Box mt={1}>
         <Typography variant="caption" color="text.secondary">
-          {!databaseName ? 'Select a database to connect automatically' : 
-           !isConnected ? 'Connecting to database...' :
+          {!isConnected ? `Connecting to database` :
            !collectionName ? 'Select a collection to begin editing' :
            'Ready to edit documents'}
         </Typography>

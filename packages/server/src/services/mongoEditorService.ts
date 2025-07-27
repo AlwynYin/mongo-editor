@@ -1,6 +1,26 @@
 import { Db, Collection, ObjectId } from 'mongodb';
 import { getMongoClient } from '../mongoConnection';
 import { MongoDocument, ApiResponse, PaginatedResult } from '@mongo-editor/shared';
+import * as dotenv from "dotenv";
+import path from "path";
+
+// Load .env from project root
+dotenv.config({
+  path: path.resolve(__dirname, '../.env'),
+});
+
+// Database configuration from environment
+const databaseName = process.env.DATABASE_NAME;
+
+if (!databaseName) {
+  console.error('DATABASE_NAME environment variable is required');
+  process.exit(1);
+}
+
+export const DATABASE_NAME: string = databaseName;
+
+console.log(`Mongo Editor is using database: ${DATABASE_NAME}`);
+
 
 export class MongoEditorService {
   private static instance: MongoEditorService;
@@ -14,17 +34,17 @@ export class MongoEditorService {
     return MongoEditorService.instance;
   }
 
-  private getDB(databaseName: string): Db {
+  private getDB(): Db {
     const client = getMongoClient();
     if (!client) {
       throw new Error('MongoDB client not initialized. Call setMongoConnection() first.');
     }
-    return client.db(databaseName);
+    return client.db(DATABASE_NAME);
   }
 
-  async listCollections(databaseName: string): Promise<ApiResponse<string[]>> {
+  async listCollections(): Promise<ApiResponse<string[]>> {
     try {
-      const collections = await this.getDB(databaseName).listCollections().toArray();
+      const collections = await this.getDB().listCollections().toArray();
       const collectionNames = collections.map(col => col.name);
       return { success: true, data: collectionNames };
     } catch (error) {
@@ -36,13 +56,12 @@ export class MongoEditorService {
   }
 
   async getDocuments(
-    databaseName: string,
     collectionName: string, 
     page = 1, 
     limit = 25
   ): Promise<ApiResponse<PaginatedResult<MongoDocument>>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       const skip = (page - 1) * limit;
       
       const [documents, total] = await Promise.all([
@@ -69,7 +88,7 @@ export class MongoEditorService {
     }
   }
 
-  async getCollectionStats(databaseName: string, collectionName: string): Promise<ApiResponse<{
+  async getCollectionStats(collectionName: string): Promise<ApiResponse<{
     estimatedCount: number;
     exactCount?: number;
     avgDocumentSize?: number;
@@ -77,10 +96,10 @@ export class MongoEditorService {
     indexSizes?: Record<string, number>;
   }>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Get collection statistics using MongoDB's stats command
-      const stats = await this.getDB(databaseName).command({ collStats: collectionName });
+      const stats = await this.getDB().command({ collStats: collectionName });
       
       // Get estimated document count (fast operation)
       const estimatedCount = await collection.estimatedDocumentCount();
@@ -98,7 +117,7 @@ export class MongoEditorService {
     } catch (error) {
       // If collStats fails, fall back to basic estimation
       try {
-        const collection = this.getDB(databaseName).collection(collectionName);
+        const collection = this.getDB().collection(collectionName);
         const estimatedCount = await collection.estimatedDocumentCount();
         
         return {
@@ -116,13 +135,13 @@ export class MongoEditorService {
     }
   }
 
-  async getCollectionSchema(databaseName: string, collectionName: string): Promise<ApiResponse<{
+  async getCollectionSchema(collectionName: string): Promise<ApiResponse<{
     jsonSchema?: any;
     validator?: any;
     inferredSchema?: Record<string, string>;
   }>> {
     try {
-      const db = this.getDB(databaseName);
+      const db = this.getDB();
       
       // First try to get the actual MongoDB schema/validator
       const collections = await db.listCollections({ name: collectionName }).toArray();
@@ -243,13 +262,12 @@ export class MongoEditorService {
   }
 
   async updateDocument(
-    databaseName: string,
     collectionName: string, 
     documentId: string, 
     updateData: any
   ): Promise<ApiResponse<MongoDocument>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Remove _id from updates to avoid conflict
       const { _id, ...updates } = updateData;
@@ -285,12 +303,11 @@ export class MongoEditorService {
   }
 
   async createDocument(
-    databaseName: string,
     collectionName: string, 
     documentData: any
   ): Promise<ApiResponse<MongoDocument>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Remove any existing _id from the data to let MongoDB generate it
       const { _id, ...dataWithoutId } = documentData;
@@ -318,12 +335,11 @@ export class MongoEditorService {
   }
 
   async deleteDocument(
-    databaseName: string,
     collectionName: string, 
     documentId: string
   ): Promise<ApiResponse<void>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Validate document ID
       if (!ObjectId.isValid(documentId)) {
@@ -346,14 +362,13 @@ export class MongoEditorService {
   }
 
   async addFieldToCollection(
-    databaseName: string,
     collectionName: string,
     fieldName: string,
     fieldType: string,
     defaultValue?: any
   ): Promise<ApiResponse<{ modifiedCount: number }>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Validate field name
       if (!fieldName || fieldName.trim() === '') {
@@ -361,7 +376,7 @@ export class MongoEditorService {
       }
       
       // Get current schema state
-      const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+      const schemaResponse = await this.getCollectionSchema(collectionName);
       let hasJsonSchema = false;
       let currentSchema: Record<string, string> = {};
       
@@ -410,25 +425,25 @@ export class MongoEditorService {
           // Update existing JSON Schema by adding the new field
           const updatedSchema = { ...currentSchema, [fieldName]: fieldType };
           const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
-          await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          await this.applyJsonSchemaToCollection(collectionName, jsonSchema);
         } else if (Object.keys(currentSchema).length > 0) {
           // Create new JSON Schema from inferred schema + new field
           const newSchema = { ...currentSchema, [fieldName]: fieldType };
           const jsonSchema = this.convertInferredSchemaToJsonSchema(newSchema);
-          const schemaApplied = await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          const schemaApplied = await this.applyJsonSchemaToCollection(collectionName, jsonSchema);
           
           if (schemaApplied) {
-            console.log(`Created JSON Schema for collection ${databaseName}.${collectionName}`);
+            console.log(`Created JSON Schema for collection ${DATABASE_NAME}.${collectionName}`);
           }
         } else {
           // Empty collection - create minimal schema with just _id and new field
           const minimalSchema = { _id: 'objectId', [fieldName]: fieldType };
           const jsonSchema = this.convertInferredSchemaToJsonSchema(minimalSchema);
-          await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+          await this.applyJsonSchemaToCollection(collectionName, jsonSchema);
         }
       } catch (error) {
         // Schema update failed, but document update succeeded
-        console.warn(`Document update succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        console.warn(`Document update succeeded but schema update failed for ${DATABASE_NAME}.${collectionName}:`, error);
         // Don't return error - the main operation (adding field to documents) succeeded
       }
 
@@ -445,13 +460,12 @@ export class MongoEditorService {
   }
 
   async renameField(
-    databaseName: string,
     collectionName: string,
     oldFieldName: string,
     newFieldName: string
   ): Promise<ApiResponse<{ modifiedCount: number }>> {
     try {
-      const collection = this.getDB(databaseName).collection(collectionName);
+      const collection = this.getDB().collection(collectionName);
       
       // Validate field names
       if (!oldFieldName || !newFieldName || oldFieldName.trim() === '' || newFieldName.trim() === '') {
@@ -482,7 +496,7 @@ export class MongoEditorService {
 
       // Update JSON Schema if it exists
       try {
-        const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+        const schemaResponse = await this.getCollectionSchema(collectionName);
         if (schemaResponse.success && schemaResponse.data && schemaResponse.data.jsonSchema) {
           const currentSchema = this.extractFieldsFromJsonSchema(schemaResponse.data.jsonSchema);
           
@@ -494,12 +508,12 @@ export class MongoEditorService {
             updatedSchema[newFieldName] = fieldType;
             
             const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
-            await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+            await this.applyJsonSchemaToCollection(collectionName, jsonSchema);
           }
         }
       } catch (error) {
         // Schema update failed, but document update succeeded
-        console.warn(`Field rename succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        console.warn(`Field rename succeeded but schema update failed for ${DATABASE_NAME}.${collectionName}:`, error);
         // Don't return error - the main operation succeeded
       }
 
@@ -516,12 +530,11 @@ export class MongoEditorService {
   }
 
   async removeFieldFromCollection(
-    databaseName: string,
     collectionName: string,
     fieldName: string
   ): Promise<ApiResponse<{ modifiedCount: number }>> {
     try {
-      const db = this.getDB(databaseName);
+      const db = this.getDB();
       
       // Temporarily disable validation to avoid conflicts during field removal
       try {
@@ -531,7 +544,7 @@ export class MongoEditorService {
           validationLevel: "off"
         });
       } catch (error) {
-        console.warn(`Failed to disable validation temporarily for ${databaseName}.${collectionName}:`, error);
+        console.warn(`Failed to disable validation temporarily for ${DATABASE_NAME}.${collectionName}:`, error);
       }
 
       // Remove the field from all documents
@@ -544,7 +557,7 @@ export class MongoEditorService {
 
       // Update JSON Schema if it exists
       try {
-        const schemaResponse = await this.getCollectionSchema(databaseName, collectionName);
+        const schemaResponse = await this.getCollectionSchema(collectionName);
         if (schemaResponse.success && schemaResponse.data) {
           let currentSchema: Record<string, string> = {};
           if (schemaResponse.data.jsonSchema) {
@@ -556,12 +569,12 @@ export class MongoEditorService {
             const updatedSchema = { ...currentSchema };
             delete updatedSchema[fieldName];
             const jsonSchema = this.convertInferredSchemaToJsonSchema(updatedSchema);
-            await this.applyJsonSchemaToCollection(databaseName, collectionName, jsonSchema);
+            await this.applyJsonSchemaToCollection(collectionName, jsonSchema);
           }
         }
       } catch (error) {
         // Schema update failed, but document update succeeded
-        console.warn(`Field removal succeeded but schema update failed for ${databaseName}.${collectionName}:`, error);
+        console.warn(`Field removal succeeded but schema update failed for ${DATABASE_NAME}.${collectionName}:`, error);
         // Re-enable basic validation even if schema update failed
         try {
           await db.command({
@@ -571,7 +584,7 @@ export class MongoEditorService {
             validationAction: "warn"
           });
         } catch (validationError) {
-          console.warn(`Failed to re-enable validation for ${databaseName}.${collectionName}:`, validationError);
+          console.warn(`Failed to re-enable validation for ${DATABASE_NAME}.${collectionName}:`, validationError);
         }
       }
 
@@ -580,7 +593,7 @@ export class MongoEditorService {
         data: { modifiedCount: updateResult.modifiedCount }
       };
     } catch (error) {
-      console.error(`[removeFieldFromCollection] Error removing field ${fieldName} from ${databaseName}.${collectionName}:`, error);
+      console.error(`[removeFieldFromCollection] Error removing field ${fieldName} from ${DATABASE_NAME}.${collectionName}:`, error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to remove field from collection'
@@ -658,12 +671,11 @@ export class MongoEditorService {
   }
 
   private async applyJsonSchemaToCollection(
-    databaseName: string,
     collectionName: string,
     jsonSchema: object
   ): Promise<boolean> {
     try {
-      const db = this.getDB(databaseName);
+      const db = this.getDB();
       await db.command({
         collMod: collectionName,
         validator: jsonSchema,
@@ -672,7 +684,7 @@ export class MongoEditorService {
       });
       return true;
     } catch (error) {
-      console.warn(`Failed to apply JSON Schema to ${databaseName}.${collectionName}:`, error);
+      console.warn(`Failed to apply JSON Schema to ${DATABASE_NAME}.${collectionName}:`, error);
       return false; // Non-blocking failure
     }
   }
@@ -727,17 +739,17 @@ export class MongoEditorService {
     return fields;
   }
 
-  async testConnection(databaseName: string): Promise<ApiResponse<{ status: string; database: string }>> {
+  async testConnection(): Promise<ApiResponse<{ status: string; database: string }>> {
     try {
       // Try to get database stats to test connection
-      const admin = this.getDB(databaseName).admin();
+      const admin = this.getDB().admin();
       await admin.ping();
       
       return { 
         success: true, 
         data: { 
           status: 'connected', 
-          database: databaseName 
+          database: DATABASE_NAME 
         } 
       };
     } catch (error) {
