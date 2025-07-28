@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Paper, Typography, Alert, Snackbar } from '@mui/material';
+import { Box, Typography, Alert, Snackbar } from '@mui/material';
 import { DatabaseCollectionSelector } from './DatabaseCollectionSelector';
 import { CollectionDataGrid } from './CollectionDataGrid';
 import { MongoDocument } from '@mongo-editor/shared';
@@ -67,7 +67,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
         </Alert>
       )}
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+      <Box sx={{ p: 2, mb: 2 }}>
         <DatabaseCollectionSelector
           collectionName={collectionName}
           onCollectionChange={handleCollectionChange}
@@ -75,10 +75,10 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
           onConnectionError={handleConnectionError}
           isConnected={isConnected}
         />
-      </Paper>
+      </Box>
 
       {isConnected && collectionName && (
-        <Paper sx={{ 
+        <Box sx={{ 
           p: 2, 
           flexGrow: 1, 
           minHeight: 400, 
@@ -94,7 +94,7 @@ export const MongoCollectionEditor: React.FC<MongoCollectionEditorProps> = ({
             onEditSuccess={(message) => showToast(message, 'success')}
             onEditError={(message) => showToast(message, 'error')}
           />
-        </Paper>
+        </Box>
       )}
 
 
